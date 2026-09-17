@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill
@@ -1046,4 +1045,3 @@ if uploaded_file is not None:
             st.error(
                 f"Error: {e}"
             )
-```
