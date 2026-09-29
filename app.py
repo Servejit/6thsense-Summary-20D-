@@ -345,31 +345,43 @@ def process_excel(uploaded_file):
         for col_num, value in enumerate(fb_values[:10], start=29):
             summary.cell(r, col_num).value = value
 
-        # AM = 10 -ve count + optional "+" + positions.
-        negative_count = sum(
-            1 for v in fb_values[:10] if v is not None and v < 0
-        )
-        positive_count = sum(
-            1 for v in fb_values[:10] if v is not None and v > 0
-        )
+        # AM/AN reproduce the original Excel nested-IF logic:
+        # count consecutive negative/positive C2O values from sheet 1
+        # through sheet 10. This is NOT a total count if the sequence
+        # is interrupted; the original formula stops at the first
+        # non-matching value.
+        negative_count = 0
+        for value in fb_values[:10]:
+            if value is not None and value < 0:
+                negative_count += 1
+            else:
+                break
 
+        positive_count = 0
+        for value in fb_values[:10]:
+            if value is not None and value > 0:
+                positive_count += 1
+            else:
+                break
+
+        # Position numbers show where |O2H| is smaller/larger than |O2L|,
+        # matching the original I:R versus S:AB comparison.
         negative_positions = []
         positive_positions = []
+
         for idx in range(10):
-            c = cb_values[idx]
-            d = db_values[idx]
-            if c is not None and d is not None:
-                if abs(c) < abs(d):
+            o2h = cb_values[idx]
+            o2l = db_values[idx]
+
+            if o2h is not None and o2l is not None:
+                if abs(o2h) < abs(o2l):
                     negative_positions.append(str(idx + 1))
-                if abs(c) > abs(d):
+                elif abs(o2h) > abs(o2l):
                     positive_positions.append(str(idx + 1))
 
-        c_inside = (
-            abs(cb_avg4) if cb_avg4 is not None else 999999999
-        )
-        d_inside = (
-            abs(db_avg4) if db_avg4 is not None else 0
-        )
+        # The + marker compares the Avg.4 values embedded in C and D.
+        c_inside = abs(cb_avg4) if cb_avg4 is not None else 999999999
+        d_inside = abs(db_avg4) if db_avg4 is not None else 0
 
         am_plus = "+" if c_inside < d_inside else ""
         an_plus = "+" if c_inside > d_inside else ""
