@@ -146,68 +146,101 @@ def process_excel(uploaded_file):
 
     input_bytes = uploaded_file.getvalue()
 
-    wb = load_workbook(
-        BytesIO(input_bytes)
-    )
+    wb = load_workbook(BytesIO(input_bytes))
 
     # --------------------------------------------------------
     # DELETE OLD SUMMARY
     # --------------------------------------------------------
-
     if "summary" in wb.sheetnames:
         del wb["summary"]
-
-    # --------------------------------------------------------
-    # SHEETS
-    # --------------------------------------------------------
 
     sheets = wb.worksheets[:]
 
     if len(sheets) < 20:
         raise ValueError(
-            f"At least 20 sheets are required. "
-            f"Found only {len(sheets)}."
+            f"At least 20 sheets are required. Found only {len(sheets)}."
         )
 
     first_sheet = sheets[0]
-
     sheets20 = sheets[:20]
     sheets10 = sheets[:10]
     sheets5 = sheets[:5]
 
-    # --------------------------------------------------------
-    # ROW RANGE
-    # --------------------------------------------------------
-
     START_ROW = 2
     END_ROW = 211
-
-    # --------------------------------------------------------
-    # CREATE SUMMARY
-    # --------------------------------------------------------
 
     summary = wb.create_sheet("summary")
 
     # --------------------------------------------------------
-    # COLUMN A
+    # HELPERS: reproduce Excel SUMIF/XLOOKUP behaviour in Python
     # --------------------------------------------------------
+    def num(value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(str(value).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return None
 
-    summary["A1"] = first_sheet["A1"].value
+    def source_maps(ws):
+        sums = {}
+        first = {}
+        for rr in range(1, ws.max_row + 1):
+            key = ws.cell(rr, 1).value
+            if key is None:
+                continue
+            if key not in first:
+                first[key] = {
+                    "B": num(ws.cell(rr, 2).value),
+                    "C": num(ws.cell(rr, 3).value),
+                    "D": num(ws.cell(rr, 4).value),
+                    "F": num(ws.cell(rr, 6).value),
+                    "I": num(ws.cell(rr, 9).value),
+                    "J": num(ws.cell(rr, 10).value),
+                }
+            s = sums.setdefault(key, {"I": 0.0, "J": 0.0})
+            iv = num(ws.cell(rr, 9).value)
+            jv = num(ws.cell(rr, 10).value)
+            if iv is not None:
+                s["I"] += iv
+            if jv is not None:
+                s["J"] += jv
+        return first, sums
 
-    for r in range(START_ROW, END_ROW + 1):
+    maps = {ws.title: source_maps(ws) for ws in sheets20}
 
-        summary.cell(
-            r,
-            1
-        ).value = first_sheet.cell(
-            r,
-            1
-        ).value
+    def lookup(ws, key, col):
+        return maps[ws.title][0].get(key, {}).get(col)
+
+    def sumif(ws, key, col):
+        return maps[ws.title][1].get(key, {}).get(col, 0.0)
+
+    def pct_delta(ws, key, target_col):
+        target = lookup(ws, key, target_col)
+        base = lookup(ws, key, "B")
+        if target is None or base is None or base == 0:
+            return None
+        return (target - base) / base * 100.0
+
+    def avg_first_four(values):
+        valid = [v for v in values if v is not None]
+        if not valid:
+            return None
+        return sum(valid[:4]) / len(valid[:4])
+
+    def fmt2(value):
+        if value is None:
+            return ""
+        return f"{value:.2f}"
 
     # --------------------------------------------------------
     # HEADINGS
     # --------------------------------------------------------
-
+    summary["A1"] = first_sheet["A1"].value
     summary["B1"] = "Sum I"
     summary["C1"] = "16> C-B / Avg.4"
     summary["D1"] = "16< D-B / Avg.4"
@@ -216,528 +249,155 @@ def process_excel(uploaded_file):
     summary["G1"] = "Vol.Expand 1"
     summary["H1"] = "Vol.Expand 2"
 
-    # ========================================================
-    # MAIN CALCULATIONS
-    # ========================================================
+    for col_num, ws in enumerate(sheets10, start=9):
+        summary.cell(1, col_num).value = f"{ws.title} O2H"
 
-    for r in range(START_ROW, END_ROW + 1):
+    for col_num, ws in enumerate(sheets10, start=19):
+        summary.cell(1, col_num).value = f"{ws.title} O2L"
 
-        # ----------------------------------------------------
-        # B = SUM I
-        # ----------------------------------------------------
-
-        summary.cell(
-            r,
-            2
-        ).value = sum_i_expression(
-            r,
-            sheets20
-        )
-
-        # ----------------------------------------------------
-        # C = 16> C-B / Avg.4
-        # ----------------------------------------------------
-
-        cb_values = [
-            cb_expression(ws, r)
-            for ws in sheets20
-        ]
-
-        cb_choose = (
-            "CHOOSE({" +
-            ",".join(
-                str(i)
-                for i in range(1, 21)
-            ) +
-            "}," +
-            ",".join(cb_values) +
-            ")"
-        )
-
-        summary.cell(
-            r,
-            3
-        ).value = (
-            f'=IFERROR('
-            f'"16>"&TEXT('
-            f'LARGE({cb_choose},17),'
-            f'"0.00")'
-            f'&", Avg.4 ("&'
-            f'TEXT(AVERAGE('
-            + ",".join(cb_values[:4])
-            + '),"0.00")&")",'
-            f'""'
-            f')'
-        )
-
-        # ----------------------------------------------------
-        # D = 16< D-B / Avg.4
-        # ----------------------------------------------------
-
-        db_values = [
-            db_expression(ws, r)
-            for ws in sheets20
-        ]
-
-        db_choose = (
-            "CHOOSE({" +
-            ",".join(
-                str(i)
-                for i in range(1, 21)
-            ) +
-            "}," +
-            ",".join(db_values) +
-            ")"
-        )
-
-        summary.cell(
-            r,
-            4
-        ).value = (
-            f'=IFERROR('
-            f'"16<"&TEXT('
-            f'SMALL({db_choose},17),'
-            f'"0.00")'
-            f'&", Avg.4 ("&'
-            f'TEXT(AVERAGE('
-            + ",".join(db_values[:4])
-            + '),"0.00")&")",'
-            f'""'
-            f')'
-        )
-
-        # ----------------------------------------------------
-        # E = SUM O2H.10
-        # ----------------------------------------------------
-
-        summary.cell(
-            r,
-            5
-        ).value = (
-            "=" +
-            "+".join(
-                cb_expression(ws, r)
-                for ws in sheets10
-            )
-        )
-
-        # ----------------------------------------------------
-        # F = SUM O2L.10
-        # ----------------------------------------------------
-
-        summary.cell(
-            r,
-            6
-        ).value = (
-            "=" +
-            "+".join(
-                db_expression(ws, r)
-                for ws in sheets10
-            )
-        )
-
-        # ----------------------------------------------------
-        # G = VOL.EXPAND 1
-        # Sheet 1 J - Average Sheet 2,3,4 J
-        # ----------------------------------------------------
-
-        summary.cell(
-            r,
-            7
-        ).value = volume_expression(
-            sheets5[0],
-            sheets5[1:4],
-            r
-        )
-
-        # ----------------------------------------------------
-        # H = VOL.EXPAND 2
-        # Sheet 2 J - Average Sheet 3,4,5 J
-        # ----------------------------------------------------
-
-        summary.cell(
-            r,
-            8
-        ).value = volume_expression(
-            sheets5[1],
-            sheets5[2:5],
-            r
-        )
-
-    # ========================================================
-    # O2H = I:R
-    # ========================================================
-
-    for col_num, ws in enumerate(
-        sheets10,
-        start=9
-    ):
-
-        summary.cell(
-            1,
-            col_num
-        ).value = f"{ws.title} O2H"
-
-        for r in range(
-            START_ROW,
-            END_ROW + 1
-        ):
-
-            summary.cell(
-                r,
-                col_num
-            ).value = (
-                "=" +
-                cb_expression(
-                    ws,
-                    r
-                )
-            )
-
-    # ========================================================
-    # O2L = S:AB
-    # ========================================================
-
-    for col_num, ws in enumerate(
-        sheets10,
-        start=19
-    ):
-
-        summary.cell(
-            1,
-            col_num
-        ).value = f"{ws.title} O2L"
-
-        for r in range(
-            START_ROW,
-            END_ROW + 1
-        ):
-
-            summary.cell(
-                r,
-                col_num
-            ).value = (
-                "=" +
-                db_expression(
-                    ws,
-                    r
-                )
-            )
-
-    # ========================================================
-    # C2O = AC:AL
-    # ========================================================
-
-    for col_num, ws in enumerate(
-        sheets10,
-        start=29
-    ):
-
-        summary.cell(
-            1,
-            col_num
-        ).value = f"{ws.title} C2O"
-
-        for r in range(
-            START_ROW,
-            END_ROW + 1
-        ):
-
-            summary.cell(
-                r,
-                col_num
-            ).value = (
-                "=" +
-                fb_expression(
-                    ws,
-                    r
-                )
-            )
-
-    # ========================================================
-    # 10 "-ve"
-    # ========================================================
+    for col_num, ws in enumerate(sheets10, start=29):
+        summary.cell(1, col_num).value = f"{ws.title} C2O"
 
     summary["AM1"] = '10 "-ve"'
-
-    for r in range(
-        START_ROW,
-        END_ROW + 1
-    ):
-
-        negative_count = (
-            f'IF(AC{r}<0,'
-            f'IF(AD{r}<0,'
-            f'IF(AE{r}<0,'
-            f'IF(AF{r}<0,'
-            f'IF(AG{r}<0,'
-            f'IF(AH{r}<0,'
-            f'IF(AI{r}<0,'
-            f'IF(AJ{r}<0,'
-            f'IF(AK{r}<0,'
-            f'IF(AL{r}<0,10,9),'
-            f'8),7),6),5),4),3),2),1),0)'
-        )
-
-        c_inside = (
-            f'IFERROR('
-            f'ABS(VALUE(MID('
-            f'C{r},'
-            f'FIND("(",C{r})+1,'
-            f'FIND(")",C{r})-'
-            f'FIND("(",C{r})-1'
-            f'))),999999999)'
-        )
-
-        d_inside = (
-            f'IFERROR('
-            f'ABS(VALUE(MID('
-            f'D{r},'
-            f'FIND("(",D{r})+1,'
-            f'FIND(")",D{r})-'
-            f'FIND("(",D{r})-1'
-            f'))),0)'
-        )
-
-        plus_condition = (
-            f'IF('
-            f'{c_inside}<'
-            f'{d_inside},'
-            f'"+"'
-            f',"")'
-        )
-
-        positions = []
-
-        for idx, (
-            left_col,
-            right_col
-        ) in enumerate(
-            zip(
-                range(9, 19),
-                range(19, 29)
-            ),
-            start=1
-        ):
-
-            left = get_column_letter(
-                left_col
-            )
-
-            right = get_column_letter(
-                right_col
-            )
-
-            positions.append(
-                f'IF(AND('
-                f'ISNUMBER({left}{r}),'
-                f'ISNUMBER({right}{r}),'
-                f'ABS({left}{r})<'
-                f'ABS({right}{r})'
-                f'),'
-                f'"{idx}",'
-                f'""'
-                f')'
-            )
-
-        position_text = (
-            'TEXTJOIN(",",TRUE,' +
-            ",".join(positions) +
-            ')'
-        )
-
-        summary.cell(
-            r,
-            39
-        ).value = (
-            f'=IFERROR('
-            f'{negative_count}&'
-            f'{plus_condition}&'
-            f'{position_text},'
-            f'""'
-            f')'
-        )
-
-    # ========================================================
-    # 10 "+ve"
-    # ========================================================
-
     summary["AN1"] = '10 "+ve"'
-
-    for r in range(
-        START_ROW,
-        END_ROW + 1
-    ):
-
-        positive_count = (
-            f'IF(AC{r}>0,'
-            f'IF(AD{r}>0,'
-            f'IF(AE{r}>0,'
-            f'IF(AF{r}>0,'
-            f'IF(AG{r}>0,'
-            f'IF(AH{r}>0,'
-            f'IF(AI{r}>0,'
-            f'IF(AJ{r}>0,'
-            f'IF(AK{r}>0,'
-            f'IF(AL{r}>0,10,9),'
-            f'8),7),6),5),4),3),2),1),0)'
-        )
-
-        c_inside = (
-            f'IFERROR('
-            f'ABS(VALUE(MID('
-            f'C{r},'
-            f'FIND("(",C{r})+1,'
-            f'FIND(")",C{r})-'
-            f'FIND("(",C{r})-1'
-            f'))),0)'
-        )
-
-        d_inside = (
-            f'IFERROR('
-            f'ABS(VALUE(MID('
-            f'D{r},'
-            f'FIND("(",D{r})+1,'
-            f'FIND(")",D{r})-'
-            f'FIND("(",D{r})-1'
-            f'))),999999999)'
-        )
-
-        plus_condition = (
-            f'IF('
-            f'{c_inside}>'
-            f'{d_inside},'
-            f'"+"'
-            f',"")'
-        )
-
-        positions = []
-
-        for idx, (
-            left_col,
-            right_col
-        ) in enumerate(
-            zip(
-                range(9, 19),
-                range(19, 29)
-            ),
-            start=1
-        ):
-
-            left = get_column_letter(
-                left_col
-            )
-
-            right = get_column_letter(
-                right_col
-            )
-
-            positions.append(
-                f'IF(AND('
-                f'ISNUMBER({left}{r}),'
-                f'ISNUMBER({right}{r}),'
-                f'ABS({left}{r})>'
-                f'ABS({right}{r})'
-                f'),'
-                f'"{idx}",'
-                f'""'
-                f')'
-            )
-
-        position_text = (
-            'TEXTJOIN(",",TRUE,' +
-            ",".join(positions) +
-            ')'
-        )
-
-        summary.cell(
-            r,
-            40
-        ).value = (
-            f'=IFERROR('
-            f'{positive_count}&'
-            f'{plus_condition}&'
-            f'{position_text},'
-            f'""'
-            f')'
-        )
-
-    # ========================================================
-    # %Chg.1 TO %Chg.4
-    # ========================================================
-
     summary["AO1"] = "%Chg.1"
     summary["AP1"] = "%Chg.2"
     summary["AQ1"] = "%Chg.3"
     summary["AR1"] = "%Chg.4"
 
-    for r in range(
-        START_ROW,
-        END_ROW + 1
-    ):
+    # --------------------------------------------------------
+    # CALCULATE AND WRITE REAL VALUES -- NOT FORMULAS
+    # Covers every cell A2:AR211.
+    # --------------------------------------------------------
+    for r in range(START_ROW, END_ROW + 1):
 
-        # AO = Sheet 1 Column I
-        summary.cell(
-            r,
-            41
-        ).value = (
-            f'=IFERROR('
-            f'SUMIF('
-            f'{ref(sheets[0],"A")},'
-            f'A{r},'
-            f'{ref(sheets[0],"I")}'
-            f'),""'
-            f')'
+        key = first_sheet.cell(r, 1).value
+        summary.cell(r, 1).value = key
+
+        # B = SUM I across first 20 sheets.
+        b_value = sum(sumif(ws, key, "I") for ws in sheets20)
+        summary.cell(r, 2).value = b_value
+
+        cb_values = [pct_delta(ws, key, "C") for ws in sheets20]
+        db_values = [pct_delta(ws, key, "D") for ws in sheets20]
+        fb_values = [pct_delta(ws, key, "F") for ws in sheets20]
+
+        # Excel LARGE(...,17) over 20 values = 4th smallest.
+        cb_valid = sorted(v for v in cb_values if v is not None)
+        # Excel SMALL(...,17) over 20 values = 4th largest.
+        db_valid = sorted((v for v in db_values if v is not None), reverse=True)
+
+        cb_17th_largest = (
+            sorted(cb_valid, reverse=True)[16]
+            if len(cb_valid) >= 17 else None
+        )
+        db_17th_smallest = (
+            sorted(v for v in db_values if v is not None)[16]
+            if len([v for v in db_values if v is not None]) >= 17 else None
         )
 
-        # AP = Sheet 2 Column I
-        summary.cell(
-            r,
-            42
-        ).value = (
-            f'=IFERROR('
-            f'SUMIF('
-            f'{ref(sheets[1],"A")},'
-            f'A{r},'
-            f'{ref(sheets[1],"I")}'
-            f'),""'
-            f')'
+        cb_avg4 = (
+            sum(cb_values[:4]) / len([v for v in cb_values[:4] if v is not None])
+            if any(v is not None for v in cb_values[:4]) else None
+        )
+        db_avg4 = (
+            sum(db_values[:4]) / len([v for v in db_values[:4] if v is not None])
+            if any(v is not None for v in db_values[:4]) else None
         )
 
-        # AQ = Sheet 3 Column I
-        summary.cell(
-            r,
-            43
-        ).value = (
-            f'=IFERROR('
-            f'SUMIF('
-            f'{ref(sheets[2],"A")},'
-            f'A{r},'
-            f'{ref(sheets[2],"I")}'
-            f'),""'
-            f')'
+        summary.cell(r, 3).value = (
+            f"16>{fmt2(cb_17th_largest)}, Avg.4 ({fmt2(cb_avg4)})"
+            if cb_17th_largest is not None
+            else ""
+        )
+        summary.cell(r, 4).value = (
+            f"16<{fmt2(db_17th_smallest)}, Avg.4 ({fmt2(db_avg4)})"
+            if db_17th_smallest is not None
+            else ""
         )
 
-        # AR = Sheet 4 Column I
-        summary.cell(
-            r,
-            44
-        ).value = (
-            f'=IFERROR('
-            f'SUMIF('
-            f'{ref(sheets[3],"A")},'
-            f'A{r},'
-            f'{ref(sheets[3],"I")}'
-            f'),""'
-            f')'
+        # E/F = sums of the first 10 sheets.
+        e_value = sum(v for v in fb_values[:10] if v is not None)
+        f_value = sum(v for v in db_values[:10] if v is not None)
+        summary.cell(r, 5).value = e_value
+        summary.cell(r, 6).value = f_value
+
+        # G/H = volume expansion.
+        v1 = sumif(sheets5[0], key, "J")
+        v1_avg_values = [sumif(ws, key, "J") for ws in sheets5[1:4]]
+        v2 = sumif(sheets5[1], key, "J")
+        v2_avg_values = [sumif(ws, key, "J") for ws in sheets5[2:5]]
+
+        v1_avg = sum(v1_avg_values) / 3.0
+        v2_avg = sum(v2_avg_values) / 3.0
+        summary.cell(r, 7).value = v1 - v1_avg
+        summary.cell(r, 8).value = v2 - v2_avg
+
+        # I:R = individual O2H / C-B values.
+        for col_num, value in enumerate(cb_values[:10], start=9):
+            summary.cell(r, col_num).value = value
+
+        # S:AB = individual O2L / D-B values.
+        for col_num, value in enumerate(db_values[:10], start=19):
+            summary.cell(r, col_num).value = value
+
+        # AC:AL = individual C2O / F-B values.
+        for col_num, value in enumerate(fb_values[:10], start=29):
+            summary.cell(r, col_num).value = value
+
+        # AM = 10 -ve count + optional "+" + positions.
+        negative_count = sum(
+            1 for v in fb_values[:10] if v is not None and v < 0
+        )
+        positive_count = sum(
+            1 for v in fb_values[:10] if v is not None and v > 0
         )
 
-    # ========================================================
+        negative_positions = []
+        positive_positions = []
+        for idx in range(10):
+            c = cb_values[idx]
+            d = db_values[idx]
+            if c is not None and d is not None:
+                if abs(c) < abs(d):
+                    negative_positions.append(str(idx + 1))
+                if abs(c) > abs(d):
+                    positive_positions.append(str(idx + 1))
+
+        c_inside = (
+            abs(cb_avg4) if cb_avg4 is not None else 999999999
+        )
+        d_inside = (
+            abs(db_avg4) if db_avg4 is not None else 0
+        )
+
+        am_plus = "+" if c_inside < d_inside else ""
+        an_plus = "+" if c_inside > d_inside else ""
+
+        am_text = str(negative_count) + am_plus
+        if negative_positions:
+            am_text += "," + ",".join(negative_positions)
+
+        an_text = str(positive_count) + an_plus
+        if positive_positions:
+            an_text += "," + ",".join(positive_positions)
+
+        summary.cell(r, 39).value = am_text
+        summary.cell(r, 40).value = an_text
+
+        # AO:AR = first four sheets' Column I values.
+        for col_num, ws in enumerate(sheets[:4], start=41):
+            value = sumif(ws, key, "I")
+            summary.cell(r, col_num).value = value
+
+    # --------------------------------------------------------
     # FORMATTING
-    # ========================================================
-
+    # --------------------------------------------------------
     summary.freeze_panes = "A2"
 
+    for col_num in range(1, 45):
+        summary.column_dimensions[get_column_letter(col_num)].width = 16
+
     summary.column_dimensions["A"].width = 22
     summary.column_dimensions["B"].width = 18
     summary.column_dimensions["C"].width = 28
@@ -746,144 +406,35 @@ def process_excel(uploaded_file):
     summary.column_dimensions["F"].width = 18
     summary.column_dimensions["G"].width = 18
     summary.column_dimensions["H"].width = 18
-
-    for col_num in range(9, 39):
-        summary.column_dimensions[
-            get_column_letter(col_num)
-        ].width = 16
-
     summary.column_dimensions["AM"].width = 30
     summary.column_dimensions["AN"].width = 30
 
-    for col_num in range(41, 45):
-        summary.column_dimensions[
-            get_column_letter(col_num)
-        ].width = 14
+    for r in range(START_ROW, END_ROW + 1):
+        for c in range(5, 7):
+            summary.cell(r, c).number_format = "0.00"
+        for c in range(7, 9):
+            summary.cell(r, c).number_format = "+0.00;-0.00;0.00"
+        for c in range(9, 39):
+            summary.cell(r, c).number_format = "0.00"
+        for c in range(41, 45):
+            summary.cell(r, c).number_format = "0.00"
 
-    # --------------------------------------------------------
-    # NUMBER FORMATS
-    # --------------------------------------------------------
-
-    for r in range(
-        START_ROW,
-        END_ROW + 1
-    ):
-
-        summary.cell(
-            r,
-            5
-        ).number_format = "0.00"
-
-        summary.cell(
-            r,
-            6
-        ).number_format = "0.00"
-
-        summary.cell(
-            r,
-            7
-        ).number_format = "+0;-0;0"
-
-        summary.cell(
-            r,
-            8
-        ).number_format = "+0;-0;0"
-
-    # --------------------------------------------------------
-    # ALIGNMENT
-    # --------------------------------------------------------
-
-    for row in summary.iter_rows():
-
+    for row in summary.iter_rows(min_row=1, max_row=END_ROW, min_col=1, max_col=44):
         for cell in row:
+            cell.alignment = Alignment(vertical="center")
 
-            cell.alignment = Alignment(
-                vertical="center"
-            )
+    summary.auto_filter.ref = f"A1:AR{END_ROW}"
 
-    # --------------------------------------------------------
-    # AUTOFIT
-    # --------------------------------------------------------
-
-    for col_cells in summary.columns:
-
-        max_length = 0
-
-        column = get_column_letter(
-            col_cells[0].column
-        )
-
-        for cell in col_cells:
-
-            if cell.value is not None:
-
-                try:
-                    max_length = max(
-                        max_length,
-                        len(str(cell.value))
-                    )
-                except:
-                    pass
-
-        summary.column_dimensions[
-            column
-        ].width = min(
-            max_length + 2,
-            40
-        )
-
-    # --------------------------------------------------------
-    # RESTORE IMPORTANT WIDTHS
-    # --------------------------------------------------------
-
-    summary.column_dimensions["A"].width = 22
-    summary.column_dimensions["B"].width = 18
-    summary.column_dimensions["C"].width = 28
-    summary.column_dimensions["D"].width = 28
-    summary.column_dimensions["E"].width = 18
-    summary.column_dimensions["F"].width = 18
-    summary.column_dimensions["G"].width = 18
-    summary.column_dimensions["H"].width = 18
-
-    for col_num in range(9, 39):
-        summary.column_dimensions[
-            get_column_letter(col_num)
-        ].width = 16
-
-    summary.column_dimensions["AM"].width = 30
-    summary.column_dimensions["AN"].width = 30
-
-    for col_num in range(41, 45):
-        summary.column_dimensions[
-            get_column_letter(col_num)
-        ].width = 14
-
-    # --------------------------------------------------------
-    # FILTER
-    # --------------------------------------------------------
-
-    summary.auto_filter.ref = (
-        f"A1:AR{END_ROW}"
-    )
-
-    # --------------------------------------------------------
-    # FORCE RECALCULATION
-    # --------------------------------------------------------
-
+    # Keep workbook calculation settings enabled for any formulas that may
+    # exist in the original/source sheets. The Summary sheet itself contains
+    # actual cached values, so viewers do not depend on formula recalculation.
     wb.calculation.fullCalcOnLoad = True
     wb.calculation.forceFullCalc = True
     wb.calculation.calcMode = "auto"
 
-    # --------------------------------------------------------
-    # SAVE TO MEMORY
-    # --------------------------------------------------------
-
     output = BytesIO()
-
     wb.save(output)
-
     output.seek(0)
-
     return output
 
 
