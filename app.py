@@ -317,7 +317,7 @@ def process_excel(uploaded_file):
         )
 
         # E/F = sums of the first 10 sheets.
-        e_value = sum(v for v in fb_values[:10] if v is not None)
+        e_value = sum(v for v in cb_values[:10] if v is not None)
         f_value = sum(v for v in db_values[:10] if v is not None)
         summary.cell(r, 5).value = e_value
         summary.cell(r, 6).value = f_value
