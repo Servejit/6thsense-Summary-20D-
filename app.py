@@ -366,7 +366,17 @@ def process_excel(uploaded_file):
             else None
         )
 
-        cb_avg4 = cb_avg4_by_row[r]
+        cb_valid_first_four = [
+            v for v in cb_values[:4]
+            if v is not None
+        ]
+
+        cb_avg4 = (
+            sum(cb_valid_first_four) /
+            len(cb_valid_first_four)
+            if cb_valid_first_four
+            else None
+        )
 
         db_valid_first_four = [
             v for v in db_values[:4]
