@@ -274,62 +274,32 @@ def process_excel(uploaded_file):
     summary["AT1"] = "%Chg.4"
 
     # --------------------------------------------------------
-    # PRE-CALCULATE THE Avg.4 VALUE INSIDE EACH C-COLUMN CELL.
+    # O2H ROLLING AVERAGES FOR E/F
     #
-    # Example:
-    # C2 = "16>0.13, Avg.4 (1.11)" -> parenthesized value = 1.11
+    # K:T contain the 10 dated O2H columns.
+    # Leave the first dated O2H column (K) unused.
     #
-    # E/F must use these parenthesized values and roll the
-    # four-cell window down:
+    # First new column:
+    #   E2 = AVERAGE(L2:O2)
     #
-    # E2 = average of values inside ( ) from C2:C5
-    # F2 = average of values inside ( ) from C3:C6
-    # E3 = average of values inside ( ) from C3:C6
-    # F3 = average of values inside ( ) from C4:C7
-    # ...and so on.
+    # Second new column:
+    #   F2 = AVERAGE(M2:P2)
     #
-    # Therefore E and F are rolling four-cell averages of the
-    # numbers actually present inside parentheses in Column C.
+    # The same calculation is performed horizontally for each
+    # stock row. Missing values are ignored, matching the normal
+    # Excel AVERAGE behaviour for blank cells.
     # --------------------------------------------------------
 
-    cb_avg4_by_row = {}
+    def average_values(values):
 
-    for r in range(START_ROW, END_ROW + 1):
-
-        key = first_sheet.cell(r, 1).value
-
-        cb_values = [
-            pct_delta(ws, key, "C")
-            for ws in sheets20
-        ]
-
-        valid_first_four = [
-            v for v in cb_values[:4]
+        valid = [
+            v for v in values
             if v is not None
         ]
 
-        cb_avg4_by_row[r] = (
-            sum(valid_first_four) / len(valid_first_four)
-            if valid_first_four
-            else None
-        )
-
-    def rolling_parenthesized_avg(start_row):
-
-        end_row = start_row + 3
-
-        if end_row > END_ROW:
-            return None
-
-        values = [
-            cb_avg4_by_row[row]
-            for row in range(start_row, end_row + 1)
-            if cb_avg4_by_row[row] is not None
-        ]
-
         return (
-            sum(values) / len(values)
-            if values
+            sum(valid) / len(valid)
+            if valid
             else None
         )
 
@@ -410,19 +380,14 @@ def process_excel(uploaded_file):
             else None
         )
 
-        # E/F use the numbers INSIDE the parentheses in Column C.
+        # E/F use horizontal rolling averages of the dated O2H
+        # values that are written to K:T below.
         #
-        # Row 2:
-        #   E2 = average(C2:C5 parenthesized values)
-        #   F2 = average(C3:C6 parenthesized values)
-        #
-        # Row 3:
-        #   E3 = average(C3:C6 parenthesized values)
-        #   F3 = average(C4:C7 parenthesized values)
-        #
-        # The four-cell window continues rolling downward.
-        o2h_avg4_1 = rolling_parenthesized_avg(r)
-        o2h_avg4_2 = rolling_parenthesized_avg(r + 1)
+        # K = first dated O2H and is deliberately skipped.
+        # E = average of L:O (2nd through 5th dated O2H)
+        # F = average of M:P (3rd through 6th dated O2H)
+        o2h_avg4_1 = average_values(cb_values[1:5])
+        o2h_avg4_2 = average_values(cb_values[2:6])
 
         summary.cell(r, 5).value = o2h_avg4_1
         summary.cell(r, 6).value = o2h_avg4_2
