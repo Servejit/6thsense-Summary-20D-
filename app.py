@@ -244,8 +244,8 @@ def process_excel(uploaded_file):
     summary["B1"] = "Sum I"
     summary["C1"] = "16> C-B / Avg.4"
     summary["D1"] = "16< D-B / Avg.4"
-    summary["E1"] = "Avg.4 O2H"
-    summary["F1"] = "Avg.4 O2L"
+    summary["E1"] = "Avg.4 O2H (1)"
+    summary["F1"] = "Avg.4 O2H (2)"
     summary["G1"] = "Sum O2H.10"
     summary["H1"] = "Sum O2L.10"
     summary["I1"] = "Vol.Expand 1"
@@ -307,12 +307,25 @@ def process_excel(uploaded_file):
             if any(v is not None for v in db_values[:4]) else None
         )
 
-        o2h_avg4 = sum(v for v in cb_values[:4] if v is not None) / len([v for v in cb_values[:4] if v is not None]) if any(v is not None for v in cb_values[:4]) else None
-        o2l_avg4 = sum(v for v in db_values[:4] if v is not None) / len([v for v in db_values[:4] if v is not None]) if any(v is not None for v in db_values[:4]) else None
+        # E/F = rolling four-row averages of O2H (C-B) values.
+        # E uses the next four rows: r+1:r+4.
+        # F uses the following four rows: r+2:r+5.
+        def row_o2h_avg(start_row, end_row):
+            values = []
+            for source_row in range(start_row, min(end_row, END_ROW) + 1):
+                source_key = first_sheet.cell(source_row, 1).value
+                if source_key is None:
+                    continue
+                value = pct_delta(sheets20[0], source_key, "C")
+                if value is not None:
+                    values.append(value)
+            return sum(values) / len(values) if values else None
 
-        summary.cell(r, 5).value = o2h_avg4
-        summary.cell(r, 6).value = o2l_avg4
+        o2h_avg4_1 = row_o2h_avg(r + 1, r + 4) if r + 4 <= END_ROW else None
+        o2h_avg4_2 = row_o2h_avg(r + 2, r + 5) if r + 5 <= END_ROW else None
 
+        summary.cell(r, 5).value = o2h_avg4_1
+        summary.cell(r, 6).value = o2h_avg4_2
         summary.cell(r, 3).value = (
             f"16>{fmt2(cb_17th_largest)}, Avg.4 ({fmt2(cb_avg4)})"
             if cb_17th_largest is not None
