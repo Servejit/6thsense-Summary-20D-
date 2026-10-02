@@ -244,26 +244,28 @@ def process_excel(uploaded_file):
     summary["B1"] = "Sum I"
     summary["C1"] = "16> C-B / Avg.4"
     summary["D1"] = "16< D-B / Avg.4"
-    summary["E1"] = "Sum O2H.10"
-    summary["F1"] = "Sum O2L.10"
-    summary["G1"] = "Vol.Expand 1"
-    summary["H1"] = "Vol.Expand 2"
+    summary["E1"] = "Avg.4 O2H"
+    summary["F1"] = "Avg.4 O2L"
+    summary["G1"] = "Sum O2H.10"
+    summary["H1"] = "Sum O2L.10"
+    summary["I1"] = "Vol.Expand 1"
+    summary["J1"] = "Vol.Expand 2"
 
-    for col_num, ws in enumerate(sheets10, start=9):
+    for col_num, ws in enumerate(sheets10, start=11):
         summary.cell(1, col_num).value = f"{ws.title} O2H"
 
-    for col_num, ws in enumerate(sheets10, start=19):
+    for col_num, ws in enumerate(sheets10, start=21):
         summary.cell(1, col_num).value = f"{ws.title} O2L"
 
-    for col_num, ws in enumerate(sheets10, start=29):
+    for col_num, ws in enumerate(sheets10, start=31):
         summary.cell(1, col_num).value = f"{ws.title} C2O"
 
-    summary["AM1"] = '10 "-ve"'
-    summary["AN1"] = '10 "+ve"'
-    summary["AO1"] = "%Chg.1"
-    summary["AP1"] = "%Chg.2"
-    summary["AQ1"] = "%Chg.3"
-    summary["AR1"] = "%Chg.4"
+    summary["AO1"] = '10 "-ve"'
+    summary["AP1"] = '10 "+ve"'
+    summary["AQ1"] = "%Chg.1"
+    summary["AR1"] = "%Chg.2"
+    summary["AS1"] = "%Chg.3"
+    summary["AT1"] = "%Chg.4"
 
     # --------------------------------------------------------
     # CALCULATE AND WRITE REAL VALUES -- NOT FORMULAS
@@ -305,6 +307,12 @@ def process_excel(uploaded_file):
             if any(v is not None for v in db_values[:4]) else None
         )
 
+        o2h_avg4 = sum(v for v in cb_values[:4] if v is not None) / len([v for v in cb_values[:4] if v is not None]) if any(v is not None for v in cb_values[:4]) else None
+        o2l_avg4 = sum(v for v in db_values[:4] if v is not None) / len([v for v in db_values[:4] if v is not None]) if any(v is not None for v in db_values[:4]) else None
+
+        summary.cell(r, 5).value = o2h_avg4
+        summary.cell(r, 6).value = o2l_avg4
+
         summary.cell(r, 3).value = (
             f"16>{fmt2(cb_17th_largest)}, Avg.4 ({fmt2(cb_avg4)})"
             if cb_17th_largest is not None
@@ -319,8 +327,8 @@ def process_excel(uploaded_file):
         # E/F = sums of the first 10 sheets.
         e_value = sum(v for v in cb_values[:10] if v is not None)
         f_value = sum(v for v in db_values[:10] if v is not None)
-        summary.cell(r, 5).value = e_value
-        summary.cell(r, 6).value = f_value
+        summary.cell(r, 7).value = e_value
+        summary.cell(r, 8).value = f_value
 
         # G/H = volume expansion.
         v1 = sumif(sheets5[0], key, "J")
@@ -330,19 +338,19 @@ def process_excel(uploaded_file):
 
         v1_avg = sum(v1_avg_values) / 3.0
         v2_avg = sum(v2_avg_values) / 3.0
-        summary.cell(r, 7).value = v1 - v1_avg
-        summary.cell(r, 8).value = v2 - v2_avg
+        summary.cell(r, 9).value = v1 - v1_avg
+        summary.cell(r, 10).value = v2 - v2_avg
 
         # I:R = individual O2H / C-B values.
-        for col_num, value in enumerate(cb_values[:10], start=9):
+        for col_num, value in enumerate(cb_values[:10], start=11):
             summary.cell(r, col_num).value = value
 
         # S:AB = individual O2L / D-B values.
-        for col_num, value in enumerate(db_values[:10], start=19):
+        for col_num, value in enumerate(db_values[:10], start=21):
             summary.cell(r, col_num).value = value
 
         # AC:AL = individual C2O / F-B values.
-        for col_num, value in enumerate(fb_values[:10], start=29):
+        for col_num, value in enumerate(fb_values[:10], start=31):
             summary.cell(r, col_num).value = value
 
         # AM/AN reproduce the original Excel nested-IF logic:
@@ -394,11 +402,11 @@ def process_excel(uploaded_file):
         if positive_positions:
             an_text += "," + ",".join(positive_positions)
 
-        summary.cell(r, 39).value = am_text
-        summary.cell(r, 40).value = an_text
+        summary.cell(r, 41).value = am_text
+        summary.cell(r, 42).value = an_text
 
         # AO:AR = first four sheets' Column I values.
-        for col_num, ws in enumerate(sheets[:4], start=41):
+        for col_num, ws in enumerate(sheets[:4], start=43):
             value = sumif(ws, key, "I")
             summary.cell(r, col_num).value = value
 
@@ -407,7 +415,7 @@ def process_excel(uploaded_file):
     # --------------------------------------------------------
     summary.freeze_panes = "A2"
 
-    for col_num in range(1, 45):
+    for col_num in range(1, 47):
         summary.column_dimensions[get_column_letter(col_num)].width = 16
 
     summary.column_dimensions["A"].width = 22
@@ -418,24 +426,26 @@ def process_excel(uploaded_file):
     summary.column_dimensions["F"].width = 18
     summary.column_dimensions["G"].width = 18
     summary.column_dimensions["H"].width = 18
-    summary.column_dimensions["AM"].width = 30
-    summary.column_dimensions["AN"].width = 30
+    summary.column_dimensions["I"].width = 18
+    summary.column_dimensions["J"].width = 18
+    summary.column_dimensions["AO"].width = 30
+    summary.column_dimensions["AP"].width = 30
 
     for r in range(START_ROW, END_ROW + 1):
-        for c in range(5, 7):
+        for c in range(5, 9):
             summary.cell(r, c).number_format = "0.00"
-        for c in range(7, 9):
+        for c in range(9, 11):
             summary.cell(r, c).number_format = "+0.00;-0.00;0.00"
-        for c in range(9, 39):
+        for c in range(11, 41):
             summary.cell(r, c).number_format = "0.00"
-        for c in range(41, 45):
+        for c in range(43, 47):
             summary.cell(r, c).number_format = "0.00"
 
-    for row in summary.iter_rows(min_row=1, max_row=END_ROW, min_col=1, max_col=44):
+    for row in summary.iter_rows(min_row=1, max_row=END_ROW, min_col=1, max_col=46):
         for cell in row:
             cell.alignment = Alignment(vertical="center")
 
-    summary.auto_filter.ref = f"A1:AR{END_ROW}"
+    summary.auto_filter.ref = f"A1:AT{END_ROW}"
 
     # Keep workbook calculation settings enabled for any formulas that may
     # exist in the original/source sheets. The Summary sheet itself contains
