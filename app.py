@@ -307,9 +307,11 @@ def process_excel(uploaded_file):
             if any(v is not None for v in db_values[:4]) else None
         )
 
-        # E/F = rolling four-row averages of O2H (C-B) values.
-        # E uses the next four rows: r+1:r+4.
-        # F uses the following four rows: r+2:r+5.
+        # E/F = rolling four-row averages of the O2H 16> values.
+        # (1) = current row through the next 3 rows: A2:A5
+        # (2) = next row through the next 4 rows: A3:A6
+        # This follows the requested sequence: A2:A5, then A3:A6,
+        # then A4:A7, and so on.
         def row_o2h_avg(start_row, end_row):
             values = []
             for source_row in range(start_row, min(end_row, END_ROW) + 1):
@@ -321,8 +323,8 @@ def process_excel(uploaded_file):
                     values.append(value)
             return sum(values) / len(values) if values else None
 
-        o2h_avg4_1 = row_o2h_avg(r + 1, r + 4) if r + 4 <= END_ROW else None
-        o2h_avg4_2 = row_o2h_avg(r + 2, r + 5) if r + 5 <= END_ROW else None
+        o2h_avg4_1 = row_o2h_avg(r, r + 3) if r + 3 <= END_ROW else None
+        o2h_avg4_2 = row_o2h_avg(r + 1, r + 4) if r + 4 <= END_ROW else None
 
         summary.cell(r, 5).value = o2h_avg4_1
         summary.cell(r, 6).value = o2h_avg4_2
